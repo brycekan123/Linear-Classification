@@ -75,14 +75,14 @@ def binary_train(X, y, loss="perceptron", w0=None, b0=None, step_size=0.5, max_i
             #initialize gradients to 0
             gradw_L = np.zeros_like(w) 
             gradb_L = 0
-            num_mis = 0
             for feat_index_2 in range(len(X)):
                 #get predicted point
                 predicted = (np.dot(w.T, X[feat_index_2])+b)
                 sgpred = sigmoid(predicted)
+                #logistic loss function
                 loss = -(y[feat_index_2]*np.log(sgpred)+(1-y[feat_index_2])*(np.log(1-sgpred)))
+                #if misclassified(loss!=0), get the summation of gradient w.r.t w and b
                 if loss != 0:
-                    num_mis +=1
                     gradw_L += (sgpred - y[feat_index_2])*X[feat_index_2]
                     gradb_L += (sgpred - y[feat_index_2])
             #take the avereage of the sum of gradient for that round
@@ -129,7 +129,9 @@ def binary_predict(X, w, b):
     # TODO 4 : predict DETERMINISTICALLY (i.e. do not randomize)#
     #############################################################
     preds = np.zeros(N, dtype=int)
+    
     for i in range(len(X)):
+        #convert predicts back to 0 and 1 labels
         predict = np.dot(w.T, X[i])+b
         if predict < 0:
             preds[i] = 0
@@ -174,19 +176,14 @@ def multiclass_train(X, y, C,
     """
 
     N, D = X.shape
-
     w = np.zeros((C, D))
     if w0 is not None:
         w = w0
-    
     b = np.zeros(C)
     if b0 is not None:
         b = b0
-    print("INITIALIZED B", b.shape)
     np.random.seed(42) #DO NOT CHANGE THE RANDOM SEED IN YOUR FINAL SUBMISSION
     if gd_type == "sgd":
-        print("SGD")
-        print("shape",b.shape)
         for it in range(max_iterations):
             n = np.random.choice(N)
             ####################################################
@@ -195,20 +192,21 @@ def multiclass_train(X, y, C,
             # "step_size" to minimize logistic loss. We already#
             # pick the index of the random sample for you (n)  #
             ####################################################
-            #weight: 3x2, X[n]: 1400x2 (1126th row)
-            x = X[n].reshape(1, -1)  # Shape (1,) -> (1,2)
-            z = np.dot(w,x.T)#3x2 x 1x2 = 3,2
+            #weight: Shape(3,2), X[n]: 1400x2 (1126th row)
+            x = X[n].reshape(1, -1)  # Shape (1,) -> (1,2) so can multiply with w
+            z = np.dot(w,x.T)#3x2 x 2x1 = 3,1. z = raw predicted score(before bias)
             C = w.shape[0]
-            #adds bias term to all points in that class
+            #adds bias term across entire Z row based on class. b = (3,1) or Cx1
             for c in range(C):
                 z[c, :] += b[c]
-            exp_z = np.exp(z - np.max(z,axis=0)) # shape
-            softmax_z = exp_z / np.sum(exp_z,axis=0)
-            true_label = np.zeros((C,1))
+            exp_z = np.exp(z - np.max(z,axis=0)) # for numerical stability in softmax function. Shape: (3x1)
+            softmax_z = exp_z / np.sum(exp_z,axis=0) #exponent /summation all datapoints to the exp. Shape: (3x1)
+            #apply one-hot representation where correct class' index is 1 and all others are 0. 
+            true_label = np.zeros((C,1)) # Shape
             true_label[y[n]] = 1
-            #created One-hot encoding where correct class is assigned value of 1 at class' index
-            #softmax_z - true label will give positive number if incorrectly classified(probability - 0, b
-            # but subtracting 1 will push the weights in positive direction!)
+            #softmax_z - true label will give positive number if incorrectly classified(probability - 0),
+            # but subtracting 1 will result in negative gradient, 
+            # increasing weight of correct class. Vice versa with incorrect class 
             gradW = np.dot((softmax_z-true_label),x) #shape: (3,2)
             gradB = (softmax_z-true_label).reshape(-1) #shape: (3,)
             w = w - step_size * gradW
@@ -216,30 +214,34 @@ def multiclass_train(X, y, C,
 
 
     elif gd_type == "gd":
-        print("gradient descent")
         ####################################################
         # TODO 6 : perform "max_iterations" steps of       #
         # gradient descent with step size "step_size"      #
         # to minimize logistic loss.                       #
         ####################################################
+        
         for it in range(max_iterations):
-            z = np.dot(w,X.T) #3x1400
+            #Usually, I would have a nested for loop to iteratively add the 
+            #gradients and update the weights all at once with gradient descent.
+            #Because there are so many data points, I used matrix multiplication 
+            #to efficiently compute predicted raw scores
+            z = np.dot(w,X.T) #Shape: 3x1400
             #apply all biases
             for c in range(C):
                 z[c, :] += b[c]
             # Initialize gradient for all weights
             gradW = np.zeros(w.shape)
             gradB = np.zeros(C)  
-            
-            exp_z = np.exp(z - np.max(z, axis=0))  # For numerical stability
-            softmax_z = exp_z / np.sum(exp_z, axis=0)  # Shape: (C, N)
+            exp_z = np.exp(z - np.max(z, axis=0)) #Shape: (3x1400)
+            softmax_z = exp_z / np.sum(exp_z, axis=0)  #Shape: (3x1400)
             true_label = np.zeros((C,N))
-            true_label[y, np.arange(N)] = 1  # Set 1 at the true class index for each data point
+            #Sets 1 for true class index for every data point. rest are set to 0
+            true_label[y, np.arange(N)] = 1  
+            #get difference, and update weights vased on gradient
             gradW = np.dot(softmax_z - true_label, X)  # Shape: (C, D)
-            gradB = np.sum(softmax_z - true_label, axis=1)  # Shape: (C,)
-            w = w - step_size * gradW/N # average gradient
+            gradB = np.sum(softmax_z - true_label)  # Shape: (C,)
+            w = w - step_size * gradW/N # average 
             b = b - step_size * gradB/N
-            #print(it)
     else:
         raise "Undefined algorithm."
     
@@ -273,9 +275,11 @@ def multiclass_predict(X, w, b):
     for c in range(C):
         z[c, :] += b[c]
     exp_z = np.exp(z - np.max(z))
-    softmax_z = exp_z / np.sum(exp_z) #3X1400 ARRAY
-    preds = np.argmax(softmax_z,axis=0) #Performs columnwise argmax and returns 
-    #index in which has the highest value
+    softmax_z = exp_z / np.sum(exp_z) #Shape: 3,1400 
+    #softmax_z is a 3x1400 vector of all probabilities
+    #Performs columnwise argmax and returns the index of the class with 
+    #the highest probability for each datapoitn
+    preds = np.argmax(softmax_z,axis=0) # Shape: (1400,)
     assert preds.shape == (N,)
     return preds
 
